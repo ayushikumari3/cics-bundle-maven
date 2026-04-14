@@ -18,6 +18,7 @@ Also see the [Generated Maven plugin documentation ↗](https://ibm.github.io/ci
   - [Prerequisites](#prerequisites)
   - [Create a CICS bundle (in a separate module)](#create-a-cics-bundle-in-a-separate-module-using-cics-bundle-maven-plugin)
   - [Create a CICS bundle (from an existing Java module)](#create-a-cics-bundle-from-an-existing-java-module-using-cics-bundle-maven-plugin)
+  - [Upload a WAR directly to Liberty](#upload-a-war-directly-to-liberty-using-cics-bundle-maven-plugin)
   - [Deploy a CICS bundle](#deploy-a-cics-bundle-using-cics-bundle-maven-plugin)
   - [Using nightly/snapshot development builds](#using-nightlysnapshot-development-builds)
   - [Samples](#samples)
@@ -255,6 +256,85 @@ The bundle directory of the BUNDLE definition should be set as follows: `<bundle
 
   Typically, you won't want this deployment to happen in every environment that the build is run. Placing this execution in a separate Maven profile that is only enabled in development environments is suggested.
 
+## Upload a WAR directly to Liberty using `cics-bundle-maven-plugin`
+
+The `cics-bundle-maven-plugin` provides a goal to upload WAR files directly to a Liberty server endpoint, bypassing CICS bundle creation. This approach uses the Liberty WAR upload REST API for direct deployment.
+
+### Prerequisites for WAR Upload
+
+- Liberty server with WAR upload feature enabled and configured
+- Liberty server URL endpoint (e.g., `http://server:port/com.ibm.cics.wlp.appdeploy/uploadApp`)
+- Valid credentials (username/password or JWT Bearer token) with appropriate permissions
+- Application ID and context root for your application
+
+### Configure WAR Upload
+
+Add the plugin to your WAR project's `pom.xml`:
+
+```xml
+<build>
+  <plugins>
+    <plugin>
+      <groupId>com.ibm.cics</groupId>
+      <artifactId>cics-bundle-maven-plugin</artifactId>
+      <version>2.0.1-SNAPSHOT</version>
+      <executions>
+        <execution>
+          <goals>
+            <goal>upload-war</goal>
+          </goals>
+        </execution>
+      </executions>
+      <configuration>
+        <libertyWarUpload>
+          <serverUrl>http://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+          <appId>your-app-id</appId>
+          <contextRoot>/your-context-root</contextRoot>
+          <roleName>User</roleName>
+          <!-- Use Basic Authentication -->
+          <userName>${cics.user}</userName>
+          <password>${cics.password}</password>
+          <!-- OR use JWT Bearer Token -->
+          <!-- <bearerToken>${cics.token}</bearerToken> -->
+        </libertyWarUpload>
+      </configuration>
+    </plugin>
+  </plugins>
+</build>
+```
+
+### Upload the WAR
+
+Run the following command to build and upload your WAR:
+
+```bash
+mvn clean package cics-bundle:upload-war
+```
+
+The upload goal will:
+- Build the WAR file (if not already built)
+- Upload it to the configured Liberty server endpoint
+- Handle HTTP redirects automatically
+- Retry on failure (up to 3 attempts with exponential backoff)
+- Display upload progress and server response
+
+### Configuration Options
+
+| Property | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `serverUrl` | Yes | Liberty server upload endpoint | `http://server:9080/uploadApp` |
+| `appId` | Yes | Application identifier | `myapp` |
+| `contextRoot` | Yes | Application context root | `/myapp` |
+| `roleName` | No | Security role name (default: "User") | `User` |
+| `userName` | Conditional* | Authentication username | `admin` |
+| `password` | Conditional* | Authentication password | `password` |
+| `bearerToken` | Conditional* | JWT Bearer token | `eyJhbGc...` |
+
+*Either `userName`/`password` OR `bearerToken` must be provided.
+
+See the [WAR Upload sample](https://github.com/IBM/cics-bundle-maven/tree/main/samples/bundle-war-upload) for a complete working example.
+
+
 ## Using nightly/snapshot development builds
 
 Snapshot builds are published to the Sonatype OSS Maven snapshots repository which is not available in a default Maven install.  To try a snapshot build, you will need to add the following plugin repository to your `pom.xml`:
@@ -289,6 +369,11 @@ Use of this plugin will vary depending on what you're starting with and the stru
   This sample is the best starting place if you don't already have a Java project you want to build and want to have a go at building and deploying straight away. This is a reactor project with one module including the source for a web page (including a JCICS call), which will be packaged into a WAR. It has a second module, which creates the bundle and installs this in CICS.
 
 - [WAR sample](https://github.com/IBM/cics-bundle-maven/tree/main/samples/bundle-war-deploy)
+
+
+- [WAR Upload sample](https://github.com/IBM/cics-bundle-maven/tree/main/samples/bundle-war-upload)
+
+  This sample demonstrates how to upload a WAR file directly to a Liberty server endpoint, bypassing CICS bundle creation. This approach uses the WAR upload REST API for direct deployment to Liberty.
 
   This sample shows how you can add to the pom of an existing Java Maven project, to build it into a bundle and install it in CICS.
 

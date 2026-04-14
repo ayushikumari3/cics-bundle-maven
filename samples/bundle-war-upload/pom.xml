@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.ibm.cics</groupId>
+    <artifactId>demo-war-upload</artifactId>
+    <version>1.0.0</version>
+    <packaging>war</packaging>
+
+    <name>CICS Bundle Maven WAR Upload Sample</name>
+    <description>Sample demonstrating direct WAR upload to Liberty server</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>6.0.0</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+            </plugin>
+
+            <!-- CICS Bundle Maven Plugin for WAR Upload -->
+            <plugin>
+                <groupId>com.ibm.cics</groupId>
+                <artifactId>cics-bundle-maven-plugin</artifactId>
+                <version>2.0.1-SNAPSHOT</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>upload-war</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <libertyWarUpload>
+                        <serverUrl>http://winmvs2d.hursley.ibm.com:12372/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+                        <appId>demo-war-upload</appId>
+                        <contextRoot>/demo-war-upload</contextRoot>
+                        <roleName>User</roleName>
+                        <!-- Use properties for credentials -->
+                        <userName>${cics.user}</userName>
+                        <password>${cics.password}</password>
+                        <!-- Alternative: Use JWT Bearer Token -->
+                        <!-- <bearerToken>${cics.token}</bearerToken> -->
+                    </libertyWarUpload>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+<!-- Made with Bob -->

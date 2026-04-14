@@ -1,0 +1,428 @@
+package com.ibm.cics.cbmp;
+
+/*-
+ * #%L
+ * CICS Bundle Maven Plugin
+ * %%
+ * Copyright (C) 2026 IBM Corp.
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * 
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
+import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.MavenProject;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.Base64;
+
+/**
+ * Maven Mojo that uploads a WAR file to Liberty server using HTTP multipart upload.
+ * Uses streaming to handle large files without loading entire file into memory.
+ */
+@Mojo(name = "upload-war", defaultPhase = LifecyclePhase.DEPLOY)
+public class UploadWarToLibertyMojo extends AbstractMojo {
+
+    // Retry configuration
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final long RETRY_DELAY_MS = 1000L;
+    
+    // Buffer size for streaming file upload (8KB chunks)
+    private static final int BUFFER_SIZE = 8192;
+    
+    // HTTP redirect status codes
+    private static final int[] REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308};
+    
+    // HTTP success status codes
+    private static final int[] SUCCESS_STATUS_CODES = {200, 201};
+    
+    // Validation error messages
+    private static final String MISSING_SERVER_URL = "Specify serverUrl for Liberty WAR upload";
+    private static final String MISSING_APP_ID = "Specify appId for Liberty WAR upload";
+    private static final String MISSING_CONTEXT_ROOT = "Specify contextRoot for Liberty WAR upload";
+    private static final String MISSING_AUTH = "Specify either userName/password for Basic Auth OR bearerToken for JWT authentication";
+
+    private static final String UPLOAD_CONFIG_EXCEPTION = 
+        "Please specify Liberty WAR upload configuration in pom.xml.\n\n" +
+        "Example with Basic Authentication:\n" +
+        "<configuration>\n" +
+        "  <libertyWarUpload>\n" +
+        "    <serverUrl>http://localhost:9080/uploadApp</serverUrl>\n" +
+        "    <appId>myapp</appId>\n" +
+        "    <contextRoot>myapp</contextRoot>\n" +
+        "    <roleName>User</roleName>\n" +
+        "    <userName>username</userName>\n" +
+        "    <password>password</password>\n" +
+        "  </libertyWarUpload>\n" +
+        "</configuration>\n\n" +
+        "Example with JWT Token:\n" +
+        "<configuration>\n" +
+        "  <libertyWarUpload>\n" +
+        "    <serverUrl>http://localhost:9080/uploadApp</serverUrl>\n" +
+        "    <appId>myapp</appId>\n" +
+        "    <contextRoot>myapp</contextRoot>\n" +
+        "    <roleName>User</roleName>\n" +
+        "    <bearerToken>your-jwt-token</bearerToken>\n" +
+        "  </libertyWarUpload>\n" +
+        "</configuration>";
+
+    @Parameter(defaultValue = "${project}", required = true, readonly = true)
+    private MavenProject project;
+
+    @Parameter(defaultValue = "${project.build.directory}", required = true, readonly = true)
+    private File buildDir;
+
+    /**
+     * Configuration for Liberty WAR upload
+     */
+    @Parameter
+    private LibertyWarUploadConfig libertyWarUpload;
+
+    /**
+     * The WAR file to upload. Defaults to the project's artifact file.
+     */
+    @Parameter(defaultValue = "${project.build.directory}/${project.build.finalName}.war")
+    private File warFile;
+
+    @Override
+    public void execute() throws MojoExecutionException, MojoFailureException {
+        getLog().info("=== Upload WAR to Liberty ===");
+
+        validateConfiguration();
+
+        File war = validateWarFile();
+        logUploadInfo(war);
+
+        try {
+            uploadWarWithRetry(war);
+            getLog().info("✓ WAR file uploaded successfully!");
+        } catch (Exception e) {
+            throw new MojoExecutionException("Failed to upload WAR file: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Validates that the WAR file exists and is readable.
+     */
+    private File validateWarFile() throws MojoExecutionException {
+        if (!warFile.exists()) {
+            throw new MojoExecutionException("WAR file does not exist: '" + warFile.getAbsolutePath() + "'");
+        }
+        return warFile;
+    }
+
+    /**
+     * Logs upload information including file name, size, and target server.
+     */
+    private void logUploadInfo(File war) {
+        double fileSizeMB = war.length() / (1024.0 * 1024.0);
+        getLog().info("Uploading WAR file: " + war.getName());
+        getLog().info(String.format("File size: %.2f MB", fileSizeMB));
+        getLog().info("Target server: " + libertyWarUpload.getServerUrl());
+    }
+
+    /**
+     * Uploads WAR file with exponential backoff retry logic.
+     */
+    private void uploadWarWithRetry(File war) throws Exception {
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                uploadWarFile(war);
+                return; // Success
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    long delayMs = RETRY_DELAY_MS * attempt;
+                    getLog().warn("Upload attempt " + attempt + " failed: " + e.getMessage() + 
+                                  ". Retrying in " + delayMs + "ms...");
+                    Thread.sleep(delayMs);
+                }
+            }
+        }
+        
+        throw new MojoExecutionException("Upload failed after " + MAX_RETRY_ATTEMPTS + " attempts", lastException);
+    }
+
+    /**
+     * Uploads WAR file using multipart/form-data with streaming.
+     * Handles HTTP redirects manually for POST requests.
+     */
+    private void uploadWarFile(File war) throws Exception {
+        String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
+        String urlWithParams = buildUrlWithParams(libertyWarUpload.getServerUrl());
+        
+        HttpURLConnection connection = createConnection(urlWithParams, boundary);
+        uploadMultipartData(connection, war, boundary);
+        
+        int responseCode = connection.getResponseCode();
+        getLog().info("Response: " + responseCode + " - " + connection.getResponseMessage());
+        
+        // Handle HTTP redirects manually for POST with body
+        if (isRedirect(responseCode)) {
+            connection = handleRedirect(connection, war, boundary);
+            responseCode = connection.getResponseCode();
+        }
+        
+        validateResponse(connection, responseCode);
+        logResponseBody(connection);
+    }
+
+    /**
+     * Uploads multipart form data with the WAR file.
+     * Streams the file in 8KB chunks to avoid loading entire file into memory.
+     */
+    private void uploadMultipartData(HttpURLConnection connection, File war, String boundary) throws IOException {
+        try (OutputStream outputStream = connection.getOutputStream()) {
+            writeMultipartHeader(outputStream, war, boundary);
+            streamFileContent(outputStream, war);
+            writeMultipartFooter(outputStream, boundary);
+        }
+    }
+
+    /**
+     * Writes the multipart form header.
+     */
+    private void writeMultipartHeader(OutputStream outputStream, File war, String boundary) throws IOException {
+        PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, "UTF-8"), true);
+        writer.append("--").append(boundary).append("\r\n");
+        writer.append("Content-Disposition: form-data; name=\"warFile\"; filename=\"").append(war.getName()).append("\"\r\n");
+        writer.append("Content-Type: application/octet-stream\r\n");
+        writer.append("\r\n");
+        writer.flush();
+    }
+
+    /**
+     * Streams file content in chunks with progress logging.
+     * Uses 8KB buffer to read and write file data efficiently.
+     */
+    private void streamFileContent(OutputStream outputStream, File war) throws IOException {
+        try (FileInputStream fileInput = new FileInputStream(war)) {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            int bytesRead;
+            long totalBytes = 0;
+            
+            while ((bytesRead = fileInput.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+                totalBytes += bytesRead;
+            }
+        }
+    }
+
+    /**
+     * Writes the multipart form footer.
+     */
+    private void writeMultipartFooter(OutputStream outputStream, String boundary) throws IOException {
+        PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, "UTF-8"), true);
+        writer.append("\r\n--").append(boundary).append("--\r\n");
+        writer.flush();
+    }
+
+    /**
+     * Handles HTTP redirect by creating new connection and re-uploading.
+     */
+    private HttpURLConnection handleRedirect(HttpURLConnection originalConnection, File war, String boundary) throws Exception {
+        String redirectUrl = originalConnection.getHeaderField("Location");
+        if (redirectUrl == null) {
+            throw new MojoExecutionException("Redirect response missing Location header");
+        }
+        
+        getLog().info("Following redirect to: " + redirectUrl);
+        originalConnection.disconnect();
+        
+        String redirectUrlWithParams = buildUrlWithParams(redirectUrl);
+        HttpURLConnection newConnection = createConnection(redirectUrlWithParams, boundary);
+        uploadMultipartData(newConnection, war, boundary);
+        
+        getLog().info("Redirect response: " + newConnection.getResponseCode() + " - " + newConnection.getResponseMessage());
+        return newConnection;
+    }
+
+    /**
+     * Validates the HTTP response code.
+     */
+    private void validateResponse(HttpURLConnection connection, int responseCode) throws Exception {
+        if (!isSuccess(responseCode)) {
+            throw new MojoExecutionException("Upload failed with code " + responseCode + ": " + getErrorMessage(connection));
+        }
+    }
+
+    /**
+     * Builds URL with query parameters for Liberty upload.
+     * If URL already contains parameters (from redirect), returns as-is.
+     */
+    private String buildUrlWithParams(String baseUrl) throws Exception {
+        // If URL already has our parameters (from redirect), return as-is
+        if (baseUrl.contains("appId=")) {
+            return baseUrl;
+        }
+        
+        // Otherwise, add parameters (userName is extracted from auth header on server side)
+        String separator = baseUrl.contains("?") ? "&" : "?";
+        String params = "appId=" + urlEncode(libertyWarUpload.getAppId()) +
+                       "&contextRoot=" + urlEncode(libertyWarUpload.getContextRoot()) +
+                       "&roleName=" + urlEncode(libertyWarUpload.getRoleName());
+        
+        return baseUrl + separator + params;
+    }
+
+    /**
+     * Creates HTTP connection with multipart headers and authentication.
+     */
+    private HttpURLConnection createConnection(String url, String boundary) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setInstanceFollowRedirects(false);  // Handle redirects manually for POST
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        connection.setRequestProperty("Transfer-Encoding", "chunked");
+        
+        addAuthentication(connection);
+        
+        return connection;
+    }
+
+    /**
+     * Adds authentication header to connection (Basic Auth or Bearer Token).
+     */
+    private void addAuthentication(HttpURLConnection connection) {
+        String bearerToken = libertyWarUpload.getBearerToken();
+        String userName = libertyWarUpload.getUserName();
+        String password = libertyWarUpload.getPassword();
+        
+        if (bearerToken != null && !bearerToken.isEmpty()) {
+            // Use JWT Bearer token
+            connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+            getLog().info("Using JWT Bearer token authentication");
+        } else if (userName != null && !userName.isEmpty() && password != null && !password.isEmpty()) {
+            // Use Basic Authentication
+            String credentials = userName + ":" + password;
+            String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes());
+            connection.setRequestProperty("Authorization", "Basic " + encodedCredentials);
+            getLog().info("Using Basic Authentication");
+        } else {
+            getLog().warn("No authentication credentials provided");
+        }
+    }
+
+    /**
+     * Logs the HTTP response body if available.
+     */
+    private void logResponseBody(HttpURLConnection connection) {
+        try {
+            if (connection.getInputStream() != null) {
+                java.util.Scanner scanner = new java.util.Scanner(connection.getInputStream()).useDelimiter("\\A");
+                String responseBody = scanner.hasNext() ? scanner.next() : "";
+                if (!responseBody.isEmpty()) {
+                    getLog().info("Server response: " + responseBody);
+                }
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+    }
+
+    /**
+     * Extracts error message from HTTP connection.
+     */
+    private String getErrorMessage(HttpURLConnection connection) {
+        try {
+            if (connection.getErrorStream() != null) {
+                java.util.Scanner scanner = new java.util.Scanner(connection.getErrorStream()).useDelimiter("\\A");
+                return scanner.hasNext() ? scanner.next() : connection.getResponseMessage();
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+        try {
+            return connection.getResponseMessage();
+        } catch (Exception e) {
+            return "Unknown error";
+        }
+    }
+
+    /**
+     * URL-encodes a string value.
+     */
+    private String urlEncode(String value) throws Exception {
+        return URLEncoder.encode(value, "UTF-8");
+    }
+
+    /**
+     * Checks if response code is a redirect.
+     */
+    private boolean isRedirect(int code) {
+        for (int redirectCode : REDIRECT_STATUS_CODES) {
+            if (code == redirectCode) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Checks if response code is a success.
+     */
+    private boolean isSuccess(int code) {
+        for (int successCode : SUCCESS_STATUS_CODES) {
+            if (code == successCode) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Validates that all required configuration properties are set.
+     */
+    private void validateConfiguration() throws MojoExecutionException {
+        if (libertyWarUpload == null) {
+            throw new MojoExecutionException(UPLOAD_CONFIG_EXCEPTION);
+        }
+
+        StringBuilder errors = new StringBuilder();
+
+        if (libertyWarUpload.getServerUrl() == null || libertyWarUpload.getServerUrl().isEmpty()) {
+            errors.append(MISSING_SERVER_URL).append("\n");
+        }
+        if (libertyWarUpload.getAppId() == null || libertyWarUpload.getAppId().isEmpty()) {
+            errors.append(MISSING_APP_ID).append("\n");
+        }
+        if (libertyWarUpload.getContextRoot() == null || libertyWarUpload.getContextRoot().isEmpty()) {
+            errors.append(MISSING_CONTEXT_ROOT).append("\n");
+        }
+        
+        // Validate authentication: either Basic Auth (userName + password) OR Bearer Token
+        boolean hasBasicAuth = libertyWarUpload.getUserName() != null && !libertyWarUpload.getUserName().isEmpty() &&
+                               libertyWarUpload.getPassword() != null && !libertyWarUpload.getPassword().isEmpty();
+        boolean hasBearerToken = libertyWarUpload.getBearerToken() != null && !libertyWarUpload.getBearerToken().isEmpty();
+        
+        if (!hasBasicAuth && !hasBearerToken) {
+            errors.append(MISSING_AUTH).append("\n");
+        }
+        
+        if (hasBasicAuth && hasBearerToken) {
+            getLog().warn("Both Basic Auth and Bearer Token provided. Bearer Token will be used.");
+        }
+
+        if (errors.length() > 0) {
+            throw new MojoExecutionException(errors.toString() + "\n" + UPLOAD_CONFIG_EXCEPTION);
+        }
+    }
+}
+
+// Made with Bob
