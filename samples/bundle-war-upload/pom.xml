@@ -52,9 +52,9 @@
                 </executions>
                 <configuration>
                     <libertyWarUpload>
-                        <serverUrl>http://winmvs2d.hursley.ibm.com:12372/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
-                        <appId>demo-war-upload</appId>
-                        <contextRoot>/demo-war-upload</contextRoot>
+                        <serverUrl>http://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+                        <appId>your-app-id</appId>
+                        <contextRoot>/your-context-root</contextRoot>
                         <roleName>User</roleName>
                         <!-- Use properties for credentials -->
                         <userName>${cics.user}</userName>
