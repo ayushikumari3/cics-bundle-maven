@@ -16,23 +16,6 @@ Ensure your Liberty server has the WAR upload feature enabled and configured. Yo
 - Valid credentials (username and password) with appropriate permissions
 - Application ID and context root for your application
 
-## Project Structure
-```
-bundle-war-upload/
-├── pom.xml
-└── src/
-    └── main/
-        ├── java/
-        │   └── demo/
-        │       └── SimpleServlet.java
-        └── webapp/
-            ├── index.html
-            ├── index.js
-            ├── style.css
-            └── images/
-                └── cics.png
-```
-
 ## Configuration
 
 ### Basic Authentication
