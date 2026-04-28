@@ -34,7 +34,7 @@ import java.net.URLEncoder;
 import java.util.Base64;
 
 /**
- * Maven Mojo that uploads a WAR file to Liberty server using HTTP multipart upload.
+ * Maven Mojo that uploads a WAR file to Liberty server using HTTP chunked transfer encoding.
  * Uses streaming to handle large files without loading entire file into memory.
  */
 @Mojo(name = "upload-war", defaultPhase = LifecyclePhase.DEPLOY)
@@ -163,22 +163,21 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Uploads WAR file using multipart/form-data with streaming.
+     * Uploads WAR file using HTTP chunked transfer encoding with raw binary stream.
      * Handles HTTP redirects manually for POST requests.
      */
     private void uploadWarFile(File war) throws Exception {
-        String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
         String urlWithParams = buildUrlWithParams(libertyWarUpload.getServerUrl());
         
-        HttpURLConnection connection = createConnection(urlWithParams, boundary);
-        uploadMultipartData(connection, war, boundary);
+        HttpURLConnection connection = createConnection(urlWithParams);
+        streamWarFile(connection, war);
         
         int responseCode = connection.getResponseCode();
         getLog().info("Response: " + responseCode + " - " + connection.getResponseMessage());
         
         // Handle HTTP redirects manually for POST with body
         if (isRedirect(responseCode)) {
-            connection = handleRedirect(connection, war, boundary);
+            connection = handleRedirect(connection, war);
             responseCode = connection.getResponseCode();
         }
         
@@ -187,59 +186,38 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Uploads multipart form data with the WAR file.
-     * Streams the file in 8KB chunks to avoid loading entire file into memory.
+     * Streams WAR file content directly using chunked transfer encoding.
+     * Uses 8KB buffer to read and write file data efficiently without loading into memory.
      */
-    private void uploadMultipartData(HttpURLConnection connection, File war, String boundary) throws IOException {
-        try (OutputStream outputStream = connection.getOutputStream()) {
-            writeMultipartHeader(outputStream, war, boundary);
-            streamFileContent(outputStream, war);
-            writeMultipartFooter(outputStream, boundary);
-        }
-    }
-
-    /**
-     * Writes the multipart form header.
-     */
-    private void writeMultipartHeader(OutputStream outputStream, File war, String boundary) throws IOException {
-        PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, "UTF-8"), true);
-        writer.append("--").append(boundary).append("\r\n");
-        writer.append("Content-Disposition: form-data; name=\"warFile\"; filename=\"").append(war.getName()).append("\"\r\n");
-        writer.append("Content-Type: application/octet-stream\r\n");
-        writer.append("\r\n");
-        writer.flush();
-    }
-
-    /**
-     * Streams file content in chunks with progress logging.
-     * Uses 8KB buffer to read and write file data efficiently.
-     */
-    private void streamFileContent(OutputStream outputStream, File war) throws IOException {
-        try (FileInputStream fileInput = new FileInputStream(war)) {
+    private void streamWarFile(HttpURLConnection connection, File war) throws IOException {
+        try (OutputStream outputStream = connection.getOutputStream();
+             FileInputStream fileInput = new FileInputStream(war)) {
+            
             byte[] buffer = new byte[BUFFER_SIZE];
             int bytesRead;
             long totalBytes = 0;
+            long lastLoggedMB = 0;
             
             while ((bytesRead = fileInput.read(buffer)) != -1) {
                 outputStream.write(buffer, 0, bytesRead);
                 totalBytes += bytesRead;
+                
+                // Log progress every 100MB for large files
+                long currentMB = totalBytes / (1024 * 1024);
+                if (currentMB - lastLoggedMB >= 100) {
+                    getLog().info("Uploaded: " + currentMB + "MB");
+                    lastLoggedMB = currentMB;
+                }
             }
+            
+            getLog().info(String.format("Total uploaded: %.2f MB", totalBytes / (1024.0 * 1024.0)));
         }
-    }
-
-    /**
-     * Writes the multipart form footer.
-     */
-    private void writeMultipartFooter(OutputStream outputStream, String boundary) throws IOException {
-        PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, "UTF-8"), true);
-        writer.append("\r\n--").append(boundary).append("--\r\n");
-        writer.flush();
     }
 
     /**
      * Handles HTTP redirect by creating new connection and re-uploading.
      */
-    private HttpURLConnection handleRedirect(HttpURLConnection originalConnection, File war, String boundary) throws Exception {
+    private HttpURLConnection handleRedirect(HttpURLConnection originalConnection, File war) throws Exception {
         String redirectUrl = originalConnection.getHeaderField("Location");
         if (redirectUrl == null) {
             throw new MojoExecutionException("Redirect response missing Location header");
@@ -249,8 +227,8 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         originalConnection.disconnect();
         
         String redirectUrlWithParams = buildUrlWithParams(redirectUrl);
-        HttpURLConnection newConnection = createConnection(redirectUrlWithParams, boundary);
-        uploadMultipartData(newConnection, war, boundary);
+        HttpURLConnection newConnection = createConnection(redirectUrlWithParams);
+        streamWarFile(newConnection, war);
         
         getLog().info("Redirect response: " + newConnection.getResponseCode() + " - " + newConnection.getResponseMessage());
         return newConnection;
@@ -285,15 +263,16 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Creates HTTP connection with multipart headers and authentication.
+     * Creates HTTP connection with chunked transfer encoding and authentication.
      */
-    private HttpURLConnection createConnection(String url, String boundary) throws Exception {
+    private HttpURLConnection createConnection(String url) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setInstanceFollowRedirects(false);  // Handle redirects manually for POST
-        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        connection.setRequestProperty("Content-Type", "application/octet-stream");
         connection.setRequestProperty("Transfer-Encoding", "chunked");
+        connection.setChunkedStreamingMode(BUFFER_SIZE);  // Enable chunked streaming
         
         addAuthentication(connection);
         
