@@ -65,20 +65,32 @@
                 </executions>
                 <configuration>
                     <libertyWarUpload>
-                        <serverUrl>http://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
-                        <appId>your-app-id</appId>
-                        <contextRoot>/your-context-root</contextRoot>
-                        <roleName>User</roleName>
-                        <!-- Use properties for credentials -->
+                        <serverUrl>https://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+                        <!-- Option 1: inline Liberty application XML -->
+                        
+                        <applicationXml><![CDATA[
+                            <application id="demo-war-upload" location="demo-war-upload.war" type="war">
+                                <context-root>/demo-war-upload</context-root>
+                                <classloader delegation="parentLast"/>
+                                <application-bnd>
+                                    <security-role name="User">
+                                        <user name="IN00501"/>
+                                    </security-role>
+                                </application-bnd>
+                            </application>
+                        ]]></applicationXml>
+                        
+                        <!-- Option 2: read Liberty application XML from a file -->
+                        <!-- <applicationXmlLocation>${project.basedir}/src/main/resources/application.xml</applicationXmlLocation> -->
+                        <!-- Supply credentials from Maven properties or settings.xml -->
+                        <bearerToken>${cics.token}</bearerToken>
+                        <!-- Alternative: Basic Authentication -->
                         <userName>${cics.user}</userName>
                         <password>${cics.password}</password>
-                        <!-- Alternative: Use JWT Bearer Token -->
-                        <!-- <bearerToken>${cics.token}</bearerToken> -->
+
                     </libertyWarUpload>
                 </configuration>
             </plugin>
         </plugins>
     </build>
 </project>
-
-<!-- Made with Bob -->

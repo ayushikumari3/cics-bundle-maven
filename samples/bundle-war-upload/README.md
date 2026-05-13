@@ -2,9 +2,14 @@
 
 This sample demonstrates how to upload a WAR file directly to a Liberty server endpoint using the CICS Bundle Maven Plugin's WAR upload feature. This approach deploys WARs directly to Liberty using the WAR upload REST API.
 
+The sample uses the current upload contract:
+- the WAR archive is sent as the raw HTTP request body
+- the plugin resolves the full Liberty `<application ...>` definition from either inline `applicationXml` or `applicationXmlLocation`
+
 ## Key Features
 - Direct WAR upload to Liberty server (no CICS bundle required)
-- HTTP multipart file upload with streaming (handles large files efficiently)
+- HTTP chunked upload with streaming (handles large files efficiently)
+- Full Liberty `<application>` definition supplied inline or from a file
 - Automatic retry with exponential backoff
 - HTTP redirect handling
 - Basic authentication and JWT Bearer token support
@@ -12,15 +17,16 @@ This sample demonstrates how to upload a WAR file directly to a Liberty server e
 
 ## Prerequisites
 Ensure your Liberty server has the WAR upload feature enabled and configured. You'll need:
-- The Liberty server URL endpoint (e.g., `http://server:port/com.ibm.cics.wlp.appdeploy/uploadApp`)
-- Valid credentials (username and password) with appropriate permissions
-- Application ID and context root for your application
+- The Liberty server URL endpoint (e.g., `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp`)
+- Valid credentials (username/password or JWT bearer token) with appropriate permissions
+- A Liberty application definition supplied inline in the plugin configuration or from a local file, for example `src/main/resources/application.xml`
 
 ## Configuration
 
 ### Basic Authentication
-Edit the `pom.xml` file and configure the `libertyWarUpload` section:
+Edit the `pom.xml` file and configure the `libertyWarUpload` section.
 
+Using inline `applicationXml`:
 ```xml
 <plugin>
     <groupId>com.ibm.cics</groupId>
@@ -35,10 +41,36 @@ Edit the `pom.xml` file and configure the `libertyWarUpload` section:
     </executions>
     <configuration>
         <libertyWarUpload>
-            <serverUrl>http://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
-            <appId>demo-war-upload</appId>
-            <contextRoot>/demo-war-upload</contextRoot>
-            <roleName>User</roleName>
+            <serverUrl>https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+            <applicationXml><![CDATA[
+                <application id="demo-war-upload" location="demo-war-upload.war" type="war">
+                    <context-root>/demo-war-upload</context-root>
+                </application>
+            ]]></applicationXml>
+            <userName>${cics.user}</userName>
+            <password>${cics.password}</password>
+        </libertyWarUpload>
+    </configuration>
+</plugin>
+```
+
+Using `applicationXmlLocation`:
+```xml
+<plugin>
+    <groupId>com.ibm.cics</groupId>
+    <artifactId>cics-bundle-maven-plugin</artifactId>
+    <version>2.0.1-SNAPSHOT</version>
+    <executions>
+        <execution>
+            <goals>
+                <goal>upload-war</goal>
+            </goals>
+        </execution>
+    </executions>
+    <configuration>
+        <libertyWarUpload>
+            <serverUrl>https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+            <applicationXmlLocation>${project.basedir}/src/main/resources/application.xml</applicationXmlLocation>
             <userName>${cics.user}</userName>
             <password>${cics.password}</password>
         </libertyWarUpload>
@@ -51,13 +83,13 @@ Alternatively, use JWT Bearer token:
 
 ```xml
 <libertyWarUpload>
-    <serverUrl>http://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
-    <appId>demo-war-upload</appId>
-    <contextRoot>/demo-war-upload</contextRoot>
-    <roleName>User</roleName>
+    <serverUrl>https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+    <applicationXmlLocation>${project.basedir}/src/main/resources/application.xml</applicationXmlLocation>
     <bearerToken>${cics.token}</bearerToken>
 </libertyWarUpload>
 ```
+
+You can also use inline `applicationXml` with JWT authentication in the same way.
 
 ### Credentials Management
 Store credentials in your Maven `settings.xml` or pass them as system properties:
@@ -101,10 +133,13 @@ mvn clean package cics-bundle:upload-war
 
 The upload goal will:
 1. Build the WAR file (if not already built)
-2. Upload it to the configured Liberty server endpoint
-3. Handle HTTP redirects automatically
-4. Retry on failure (up to 3 attempts)
-5. Display upload progress and server response
+2. Resolve the Liberty `<application>` definition from inline `applicationXml` or `applicationXmlLocation`
+3. Upload the WAR to the configured Liberty server endpoint using HTTP chunked transfer encoding
+4. Stream the WAR without loading the full archive into memory
+5. Send the application definition to the Liberty upload endpoint as `applicationXml`
+6. Handle HTTP redirects automatically
+7. Retry on failure (up to 3 attempts)
+8. Display upload progress and server response
 
 ### Example Output
 ```
@@ -114,7 +149,7 @@ The upload goal will:
 [INFO] Target server: http://server:12372/com.ibm.cics.wlp.appdeploy/uploadApp
 [INFO] Using Basic Authentication
 [INFO] Response: 302 - Found
-[INFO] Following redirect to: https://server:12373/com.ibm.cics.wlp.appdeploy/uploadApp?appId=...
+[INFO] Following redirect to: https://server:12373/com.ibm.cics.wlp.appdeploy/uploadApp?applicationXml=...
 [INFO] Redirect response: 200 - OK
 [INFO] Server response: Application uploaded and configured successfully.
 [INFO] ✓ WAR file uploaded successfully!
@@ -124,15 +159,29 @@ The upload goal will:
 
 | Property | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `serverUrl` | Yes | Liberty server upload endpoint | `http://server:9080/uploadApp` |
-| `appId` | Yes | Application identifier | `myapp` |
-| `contextRoot` | Yes | Application context root | `/myapp` |
-| `roleName` | No | Security role name (default: "User") | `User` |
-| `userName` | Conditional* | Authentication username | `admin` |
-| `password` | Conditional* | Authentication password | `password` |
-| `bearerToken` | Conditional* | JWT Bearer token | `eyJhbGc...` |
+| `serverUrl` | Yes | Liberty server upload endpoint | `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp` |
+| `applicationXml` | Yes* | Inline full Liberty `<application ...>` definition | `<![CDATA[<application ...>...</application>]]>` |
+| `applicationXmlLocation` | Yes* | Path to the full Liberty `<application ...>` definition | `${project.basedir}/src/main/resources/application.xml` |
+| `userName` | Conditional** | Authentication username | `admin` |
+| `password` | Conditional** | Authentication password | `password` |
+| `bearerToken` | Conditional** | JWT Bearer token | `eyJhbGc...` |
 
-*Either `userName`/`password` OR `bearerToken` must be provided.
+*Specify either `applicationXml` or `applicationXmlLocation`. If both are supplied, `applicationXml` takes precedence.
+**Either `userName`/`password` OR `bearerToken` must be provided.
+
+Example `application.xml` used by this sample:
+
+```xml
+<application id="demo-war-upload" location="demo-war-upload.war" type="war">
+  <context-root>/demo-war-upload</context-root>
+  <classloader delegation="parentLast"/>
+  <application-bnd>
+    <security-role name="User">
+      <user name="authenticatedUser"/>
+    </security-role>
+  </application-bnd>
+</application>
+```
 
 ## Troubleshooting
 
@@ -140,9 +189,9 @@ The upload goal will:
 If you encounter SSL certificate errors, ensure your Java truststore includes the Liberty server's certificate. For development/testing only, you can configure Maven to skip SSL verification (not recommended for production).
 
 ### Authentication Failures
-- Verify username and password are correct
+- Verify username/password or JWT token are correct
 - Ensure the user has appropriate permissions on the Liberty server
-- Check that the `roleName` matches the configured security role
+- Check the authenticated user is permitted by the application security mapping in `application.xml`
 
 ### Connection Timeouts
 - Verify the server URL is correct and accessible

@@ -263,11 +263,15 @@ The `cics-bundle-maven-plugin` provides a goal to upload WAR files directly to a
 ### Prerequisites for WAR Upload
 
 - Liberty server with WAR upload feature enabled and configured
-- Liberty server URL endpoint (e.g., `http://server:port/com.ibm.cics.wlp.appdeploy/uploadApp`)
+- Liberty server URL endpoint (e.g., `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp`)
 - Valid credentials (username/password or JWT Bearer token) with appropriate permissions
-- Application ID and context root for your application
+- A Liberty `<application ...>` definition, supplied either inline in the plugin configuration or from a local XML file
 
 **Note:** The upload uses HTTP chunked transfer encoding, which allows uploading WAR files of any size. Files are streamed in 8KB chunks to avoid loading the entire file into memory.
+
+The upload contract is:
+- the WAR archive is sent as the raw HTTP request body
+- the full Liberty `<application ...>` XML is supplied either inline or from a local file and sent as the `applicationXml` request parameter
 
 ### Configure WAR Upload
 
@@ -289,10 +293,14 @@ Add the plugin to your WAR project's `pom.xml`:
       </executions>
       <configuration>
         <libertyWarUpload>
-          <serverUrl>http://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
-          <appId>your-app-id</appId>
-          <contextRoot>/your-context-root</contextRoot>
-          <roleName>User</roleName>
+          <serverUrl>https://your-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+          <applicationXml><![CDATA[
+            <application id="myapp" location="myapp.war" type="war">
+              <context-root>/myapp</context-root>
+            </application>
+          ]]></applicationXml>
+          <!-- OR use applicationXmlLocation instead -->
+          <!-- <applicationXmlLocation>${project.basedir}/src/main/resources/application.xml</applicationXmlLocation> -->
           <!-- Use Basic Authentication -->
           <userName>${cics.user}</userName>
           <password>${cics.password}</password>
@@ -315,7 +323,9 @@ mvn clean package cics-bundle:upload-war
 
 The upload goal will:
 - Build the WAR file (if not already built)
-- Upload it to the configured Liberty server endpoint using HTTP chunked transfer encoding
+- Resolve the Liberty application definition from `applicationXml` or `applicationXmlLocation`
+- Upload the WAR to the configured Liberty server endpoint using HTTP chunked transfer encoding
+- Send the file as the raw request body and send the XML as the `applicationXml` request parameter
 - Stream the file in 8KB chunks without loading into memory
 - Display upload progress every 100MB for large files
 - Handle HTTP redirects automatically
@@ -326,15 +336,35 @@ The upload goal will:
 
 | Property | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `serverUrl` | Yes | Liberty server upload endpoint | `http://server:9080/uploadApp` |
-| `appId` | Yes | Application identifier | `myapp` |
-| `contextRoot` | Yes | Application context root | `/myapp` |
-| `roleName` | No | Security role name (default: "User") | `User` |
-| `userName` | Conditional* | Authentication username | `admin` |
-| `password` | Conditional* | Authentication password | `password` |
-| `bearerToken` | Conditional* | JWT Bearer token | `eyJhbGc...` |
+| `serverUrl` | Yes | Liberty server upload endpoint | `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp` |
+| `applicationXml` | Yes* | Inline full Liberty `<application ...>` definition | `<![CDATA[<application ...>...</application>]]>` |
+| `applicationXmlLocation` | Yes* | Path to a file containing the full Liberty `<application ...>` definition | `${project.basedir}/src/main/resources/application.xml` |
+| `userName` | Conditional** | Authentication username | `admin` |
+| `password` | Conditional** | Authentication password | `password` |
+| `bearerToken` | Conditional** | JWT Bearer token | `eyJhbGc...` |
 
-*Either `userName`/`password` OR `bearerToken` must be provided.
+*Specify either `applicationXml` or `applicationXmlLocation`. If both are supplied, `applicationXml` takes precedence.
+**Either `userName`/`password` OR `bearerToken` must be provided.
+
+Example `application.xml`:
+
+```xml
+<application id="myapp" location="myapp.war" type="war">
+  <context-root>/myapp</context-root>
+  <classloader delegation="parentLast"/>
+  <application-bnd>
+    <security-role name="User">
+      <user name="authenticatedUser"/>
+    </security-role>
+  </application-bnd>
+</application>
+```
+
+Notes:
+- The plugin does not generate Liberty application XML.
+- You can supply the application definition inline with `applicationXml`, or from disk with `applicationXmlLocation`.
+- If both are configured, inline `applicationXml` takes precedence.
+- The servlet derives the deployed WAR and override XML file names from `<application id="...">`.
 
 See the [WAR Upload sample](https://github.com/IBM/cics-bundle-maven/tree/main/samples/bundle-war-upload) for a complete working example.
 

@@ -22,15 +22,16 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 /**
@@ -55,30 +56,25 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     
     // Validation error messages
     private static final String MISSING_SERVER_URL = "Specify serverUrl for Liberty WAR upload";
-    private static final String MISSING_APP_ID = "Specify appId for Liberty WAR upload";
-    private static final String MISSING_CONTEXT_ROOT = "Specify contextRoot for Liberty WAR upload";
+    private static final String MISSING_APPLICATION_XML = "Specify either applicationXml or applicationXmlLocation for Liberty WAR upload";
     private static final String MISSING_AUTH = "Specify either userName/password for Basic Auth OR bearerToken for JWT authentication";
 
-    private static final String UPLOAD_CONFIG_EXCEPTION = 
+    private static final String UPLOAD_CONFIG_EXCEPTION =
         "Please specify Liberty WAR upload configuration in pom.xml.\n\n" +
-        "Example with Basic Authentication:\n" +
+        "Example with inline applicationXml and Basic Authentication:\n" +
         "<configuration>\n" +
         "  <libertyWarUpload>\n" +
         "    <serverUrl>http://localhost:9080/uploadApp</serverUrl>\n" +
-        "    <appId>myapp</appId>\n" +
-        "    <contextRoot>myapp</contextRoot>\n" +
-        "    <roleName>User</roleName>\n" +
+        "    <applicationXml><![CDATA[<application id=\"myapp\" location=\"myapp.war\" type=\"war\">...</application>]]></applicationXml>\n" +
         "    <userName>username</userName>\n" +
         "    <password>password</password>\n" +
         "  </libertyWarUpload>\n" +
         "</configuration>\n\n" +
-        "Example with JWT Token:\n" +
+        "Example with applicationXmlLocation and JWT Token:\n" +
         "<configuration>\n" +
         "  <libertyWarUpload>\n" +
         "    <serverUrl>http://localhost:9080/uploadApp</serverUrl>\n" +
-        "    <appId>myapp</appId>\n" +
-        "    <contextRoot>myapp</contextRoot>\n" +
-        "    <roleName>User</roleName>\n" +
+        "    <applicationXmlLocation>${project.basedir}/src/main/liberty/application.xml</applicationXmlLocation>\n" +
         "    <bearerToken>your-jwt-token</bearerToken>\n" +
         "  </libertyWarUpload>\n" +
         "</configuration>";
@@ -167,7 +163,7 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
      * Handles HTTP redirects manually for POST requests.
      */
     private void uploadWarFile(File war) throws Exception {
-        String urlWithParams = buildUrlWithParams(libertyWarUpload.getServerUrl());
+        String urlWithParams = buildUrlWithParams(libertyWarUpload.getServerUrl(), resolveApplicationXml());
         
         HttpURLConnection connection = createConnection(urlWithParams);
         streamWarFile(connection, war);
@@ -226,7 +222,7 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         getLog().info("Following redirect to: " + redirectUrl);
         originalConnection.disconnect();
         
-        String redirectUrlWithParams = buildUrlWithParams(redirectUrl);
+        String redirectUrlWithParams = buildUrlWithParams(redirectUrl, resolveApplicationXml());
         HttpURLConnection newConnection = createConnection(redirectUrlWithParams);
         streamWarFile(newConnection, war);
         
@@ -245,19 +241,15 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
 
     /**
      * Builds URL with query parameters for Liberty upload.
-     * If URL already contains parameters (from redirect), returns as-is.
+     * If URL already contains applicationXml (from redirect), returns as-is.
      */
-    private String buildUrlWithParams(String baseUrl) throws Exception {
-        // If URL already has our parameters (from redirect), return as-is
-        if (baseUrl.contains("appId=")) {
+    private String buildUrlWithParams(String baseUrl, String applicationXml) throws Exception {
+        if (baseUrl.contains("applicationXml=")) {
             return baseUrl;
         }
         
-        // Otherwise, add parameters (userName is extracted from auth header on server side)
         String separator = baseUrl.contains("?") ? "&" : "?";
-        String params = "appId=" + urlEncode(libertyWarUpload.getAppId()) +
-                       "&contextRoot=" + urlEncode(libertyWarUpload.getContextRoot()) +
-                       "&roleName=" + urlEncode(libertyWarUpload.getRoleName());
+        String params = "applicationXml=" + urlEncode(applicationXml);
         
         return baseUrl + separator + params;
     }
@@ -378,11 +370,17 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         if (libertyWarUpload.getServerUrl() == null || libertyWarUpload.getServerUrl().isEmpty()) {
             errors.append(MISSING_SERVER_URL).append("\n");
         }
-        if (libertyWarUpload.getAppId() == null || libertyWarUpload.getAppId().isEmpty()) {
-            errors.append(MISSING_APP_ID).append("\n");
+        boolean hasInlineApplicationXml = libertyWarUpload.getApplicationXml() != null &&
+                                          !libertyWarUpload.getApplicationXml().trim().isEmpty();
+        boolean hasApplicationXmlLocation = libertyWarUpload.getApplicationXmlLocation() != null &&
+                                            !libertyWarUpload.getApplicationXmlLocation().trim().isEmpty();
+
+        if (!hasInlineApplicationXml && !hasApplicationXmlLocation) {
+            errors.append(MISSING_APPLICATION_XML).append("\n");
         }
-        if (libertyWarUpload.getContextRoot() == null || libertyWarUpload.getContextRoot().isEmpty()) {
-            errors.append(MISSING_CONTEXT_ROOT).append("\n");
+
+        if (hasInlineApplicationXml && hasApplicationXmlLocation) {
+            getLog().warn("Both applicationXml and applicationXmlLocation provided. Inline applicationXml will be used.");
         }
         
         // Validate authentication: either Basic Auth (userName + password) OR Bearer Token
@@ -401,6 +399,39 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         if (errors.length() > 0) {
             throw new MojoExecutionException(errors.toString() + "\n" + UPLOAD_CONFIG_EXCEPTION);
         }
+    }
+
+    private String resolveApplicationXml() throws MojoExecutionException {
+        String inlineApplicationXml = libertyWarUpload.getApplicationXml();
+        if (inlineApplicationXml != null && !inlineApplicationXml.trim().isEmpty()) {
+            return inlineApplicationXml.trim();
+        }
+
+        String applicationXmlLocation = libertyWarUpload.getApplicationXmlLocation();
+        File applicationXmlFile = new File(applicationXmlLocation);
+        if (!applicationXmlFile.isAbsolute()) {
+            applicationXmlFile = new File(project.getBasedir(), applicationXmlLocation);
+        }
+
+        if (!applicationXmlFile.exists()) {
+            throw new MojoExecutionException("applicationXmlLocation does not exist: " + applicationXmlFile.getAbsolutePath());
+        }
+
+        if (!applicationXmlFile.isFile()) {
+            throw new MojoExecutionException("applicationXmlLocation is not a file: " + applicationXmlFile.getAbsolutePath());
+        }
+
+        StringBuilder xml = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(applicationXmlFile, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                xml.append(line).append('\n');
+            }
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to read applicationXmlLocation: " + applicationXmlFile.getAbsolutePath(), e);
+        }
+
+        return xml.toString().trim();
     }
 }
 

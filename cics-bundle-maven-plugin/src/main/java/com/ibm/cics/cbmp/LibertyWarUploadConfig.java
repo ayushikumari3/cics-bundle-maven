@@ -26,19 +26,16 @@ public class LibertyWarUploadConfig {
     private String serverUrl = "";
     
     /**
-     * Application ID for the WAR deployment
+     * Inline Liberty application XML.
+     * If specified, this takes precedence over applicationXmlLocation.
      */
-    private String appId = "";
+    private String applicationXml = "";
     
     /**
-     * Context root for the deployed application
+     * File location for Liberty application XML.
+     * The plugin reads this file and sends its content to the server.
      */
-    private String contextRoot = "";
-    
-    /**
-     * Role name for the deployment (default: "User")
-     */
-    private String roleName = "User";
+    private String applicationXmlLocation = "";
     
     /**
      * Username for Basic Authentication (optional if using JWT token)
@@ -54,64 +51,34 @@ public class LibertyWarUploadConfig {
      * JWT Bearer token for authentication (alternative to userName/password)
      */
     private String bearerToken = "";
-
-    // Getters and Setters
     
+
+    // Getters
     public String getServerUrl() {
         return serverUrl;
     }
 
-    public void setServerUrl(String serverUrl) {
-        this.serverUrl = serverUrl;
+    
+    public String getApplicationXml() {
+        return applicationXml;
     }
 
-    public String getAppId() {
-        return appId;
-    }
-
-    public void setAppId(String appId) {
-        this.appId = appId;
-    }
-
-    public String getContextRoot() {
-        return contextRoot;
-    }
-
-    public void setContextRoot(String contextRoot) {
-        this.contextRoot = contextRoot;
-    }
-
-    public String getRoleName() {
-        return roleName;
-    }
-
-    public void setRoleName(String roleName) {
-        this.roleName = roleName;
+    public String getApplicationXmlLocation() {
+        return applicationXmlLocation;
     }
 
     public String getUserName() {
         return userName;
     }
 
-    public void setUserName(String userName) {
-        this.userName = userName;
-    }
-
     public String getPassword() {
         return password;
-    }
-
-    public void setPassword(String password) {
-        this.password = password;
     }
 
     public String getBearerToken() {
         return bearerToken;
     }
-
-    public void setBearerToken(String bearerToken) {
-        this.bearerToken = bearerToken;
-    }
+    
 }
 
 // Made with Bob
