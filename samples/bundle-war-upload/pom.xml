@@ -87,7 +87,12 @@
                         <!-- Alternative: Basic Authentication -->
                         <userName>${cics.user}</userName>
                         <password>${cics.password}</password>
-
+                        
+                        <!-- Time to establish connection in milliseconds-->
+						<connectTimeout>${cics.connectTimeout}</connectTimeout>
+						 <!-- Time to wait for response in milliseconds -->
+    					<readTimeout>${cics.readTimeout}</readTimeout>
+    					
                     </libertyWarUpload>
                 </configuration>
             </plugin>

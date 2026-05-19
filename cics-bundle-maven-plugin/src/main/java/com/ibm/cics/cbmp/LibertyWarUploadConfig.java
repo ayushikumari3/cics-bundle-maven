@@ -52,6 +52,18 @@ public class LibertyWarUploadConfig {
      */
     private String bearerToken = "";
     
+    /**
+     * Connection timeout in milliseconds (default: 30000ms = 30 seconds)
+     * Time to wait for establishing TCP connection to the server
+     */
+    private int connectTimeout = 30000;
+    
+    /**
+     * Read timeout in milliseconds (default: 300000ms = 5 minutes)
+     * Time to wait for server response after sending the request
+     */
+    private int readTimeout = 300000;
+    
 
     // Getters
     public String getServerUrl() {
@@ -77,6 +89,14 @@ public class LibertyWarUploadConfig {
 
     public String getBearerToken() {
         return bearerToken;
+    }
+    
+    public int getConnectTimeout() {
+        return connectTimeout;
+    }
+    
+    public int getReadTimeout() {
+        return readTimeout;
     }
     
 }

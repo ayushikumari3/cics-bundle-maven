@@ -262,6 +262,16 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setInstanceFollowRedirects(false);  // Handle redirects manually for POST
+        
+        // Set timeout configurations
+        int connectTimeout = libertyWarUpload.getConnectTimeout();
+        int readTimeout = libertyWarUpload.getReadTimeout();
+        
+        connection.setConnectTimeout(connectTimeout);  // Time to establish connection
+        connection.setReadTimeout(readTimeout);        // Time to wait for response
+        
+        getLog().info("Timeout configuration - Connect: " + connectTimeout + "ms, Read: " + readTimeout + "ms");
+        
         connection.setRequestProperty("Content-Type", "application/octet-stream");
         connection.setRequestProperty("Transfer-Encoding", "chunked");
         connection.setChunkedStreamingMode(BUFFER_SIZE);  // Enable chunked streaming
