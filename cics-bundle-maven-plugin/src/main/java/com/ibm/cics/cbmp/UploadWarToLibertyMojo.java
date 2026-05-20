@@ -57,14 +57,13 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     // Validation error messages
     private static final String MISSING_SERVER_URL = "Specify serverUrl for Liberty WAR upload";
     private static final String MISSING_APPLICATION_XML = "Specify either applicationXml or applicationXmlLocation for Liberty WAR upload";
-    private static final String MISSING_AUTH = "Specify either userName/password for Basic Auth OR bearerToken for JWT authentication";
 
     private static final String UPLOAD_CONFIG_EXCEPTION =
         "Please specify Liberty WAR upload configuration in pom.xml.\n\n" +
         "Example with inline applicationXml and Basic Authentication:\n" +
         "<configuration>\n" +
         "  <libertyWarUpload>\n" +
-        "    <serverUrl>http://localhost:9080/uploadApp</serverUrl>\n" +
+        "    <serverUrl>https://localhost:9080/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>\n" +
         "    <applicationXml><![CDATA[<application id=\"myapp\" location=\"myapp.war\" type=\"war\">...</application>]]></applicationXml>\n" +
         "    <userName>username</userName>\n" +
         "    <password>password</password>\n" +
@@ -73,9 +72,17 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         "Example with applicationXmlLocation and JWT Token:\n" +
         "<configuration>\n" +
         "  <libertyWarUpload>\n" +
-        "    <serverUrl>http://localhost:9080/uploadApp</serverUrl>\n" +
+        "    <serverUrl>https://localhost:9080/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>\n" +
         "    <applicationXmlLocation>${project.basedir}/src/main/liberty/application.xml</applicationXmlLocation>\n" +
         "    <bearerToken>your-jwt-token</bearerToken>\n" +
+        "  </libertyWarUpload>\n" +
+        "</configuration>\n\n" +
+        "Example with No Security (requires SEC=NO on server):\n" +
+        "<configuration>\n" +
+        "  <libertyWarUpload>\n" +
+        "    <serverUrl>http://localhost:9080/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>\n" +
+        "    <applicationXmlLocation>${project.basedir}/src/main/liberty/application.xml</applicationXmlLocation>\n" +
+        "    <!-- No userName, password, or bearerToken - sends request without authentication -->\n" +
         "  </libertyWarUpload>\n" +
         "</configuration>";
 
@@ -283,6 +290,7 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
 
     /**
      * Adds authentication header to connection (Basic Auth or Bearer Token).
+     * If no credentials are provided, no Authorization header is added.
      */
     private void addAuthentication(HttpURLConnection connection) {
         String bearerToken = libertyWarUpload.getBearerToken();
@@ -300,7 +308,8 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
             connection.setRequestProperty("Authorization", "Basic " + encodedCredentials);
             getLog().info("Using Basic Authentication");
         } else {
-            getLog().warn("No authentication credentials provided");
+            // No credentials provided - send request without authentication
+            getLog().info("No authentication - sending request without Authorization header");
         }
     }
 
@@ -393,17 +402,30 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
             getLog().warn("Both applicationXml and applicationXmlLocation provided. Inline applicationXml will be used.");
         }
         
-        // Validate authentication: either Basic Auth (userName + password) OR Bearer Token
+        // Authentication is optional - validate only if credentials are provided
         boolean hasBasicAuth = libertyWarUpload.getUserName() != null && !libertyWarUpload.getUserName().isEmpty() &&
                                libertyWarUpload.getPassword() != null && !libertyWarUpload.getPassword().isEmpty();
         boolean hasBearerToken = libertyWarUpload.getBearerToken() != null && !libertyWarUpload.getBearerToken().isEmpty();
+        boolean hasPartialBasicAuth = (libertyWarUpload.getUserName() != null && !libertyWarUpload.getUserName().isEmpty() &&
+                                       (libertyWarUpload.getPassword() == null || libertyWarUpload.getPassword().isEmpty())) ||
+                                      ((libertyWarUpload.getUserName() == null || libertyWarUpload.getUserName().isEmpty()) &&
+                                       libertyWarUpload.getPassword() != null && !libertyWarUpload.getPassword().isEmpty());
         
-        if (!hasBasicAuth && !hasBearerToken) {
-            errors.append(MISSING_AUTH).append("\n");
+        // Only error on partial Basic Auth if there's no bearerToken (since bearerToken takes precedence)
+        if (hasPartialBasicAuth && !hasBearerToken) {
+            errors.append("Incomplete Basic Authentication. Provide both userName and password, or use bearerToken, or omit all credentials for no-security mode (SEC=NO).").append("\n");
         }
         
         if (hasBasicAuth && hasBearerToken) {
             getLog().warn("Both Basic Auth and Bearer Token provided. Bearer Token will be used.");
+        }
+        
+        if (hasPartialBasicAuth && hasBearerToken) {
+            getLog().warn("Partial Basic Auth credentials provided but will be ignored. Bearer Token will be used.");
+        }
+        
+        if (!hasBasicAuth && !hasBearerToken && !hasPartialBasicAuth) {
+            getLog().warn("No authentication credentials provided. Request will be sent without authentication. Server must be configured with SEC=NO.");
         }
 
         if (errors.length() > 0) {

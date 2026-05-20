@@ -91,6 +91,27 @@ Alternatively, use JWT Bearer token:
 
 You can also use inline `applicationXml` with JWT authentication in the same way.
 
+### No Security Configuration
+
+For environments where the CICS server is configured with `SEC=NO` and no security features are enabled in Liberty:
+
+```xml
+<libertyWarUpload>
+    <serverUrl>http://localhost:9080/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+    <applicationXmlLocation>${project.basedir}/src/main/resources/application.xml</applicationXmlLocation>
+    <!-- No userName, password, or bearerToken - request sent without authentication -->
+    
+    <!-- Optional: Configure timeouts -->
+    <connectTimeout>60000</connectTimeout>
+    <readTimeout>600000</readTimeout>
+</libertyWarUpload>
+```
+
+**Server Requirements:**
+- CICS configured with `SEC=NO` in SIT parameters
+- Liberty server.xml without security features (`appSecurity-*`, `cicsts:security-1.0`, JWT features)
+- Use plain HTTP (not HTTPS) for simplicity
+
 ### Credentials Management
 Store credentials in your Maven `settings.xml` or pass them as system properties:
 
@@ -169,7 +190,7 @@ The upload goal will:
 | `readTimeout` | No | Read timeout in milliseconds | `300000` (5min) | `600000` |
 
 *Specify either `applicationXml` or `applicationXmlLocation`. If both are supplied, `applicationXml` takes precedence.
-**Either `userName`/`password` OR `bearerToken` must be provided.
+**Either `userName`/`password` OR `bearerToken` must be provided. For no-security mode, all authentication fields can be omitted.
 
 ### Timeout Configuration
 
