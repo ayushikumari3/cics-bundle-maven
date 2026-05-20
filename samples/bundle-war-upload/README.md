@@ -157,17 +157,46 @@ The upload goal will:
 
 ## Configuration Options
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `serverUrl` | Yes | Liberty server upload endpoint | `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp` |
-| `applicationXml` | Yes* | Inline full Liberty `<application ...>` definition | `<![CDATA[<application ...>...</application>]]>` |
-| `applicationXmlLocation` | Yes* | Path to the full Liberty `<application ...>` definition | `${project.basedir}/src/main/resources/application.xml` |
-| `userName` | Conditional** | Authentication username | `admin` |
-| `password` | Conditional** | Authentication password | `password` |
-| `bearerToken` | Conditional** | JWT Bearer token | `eyJhbGc...` |
+| Property | Required | Description | Default | Example |
+|----------|----------|-------------|---------|---------|
+| `serverUrl` | Yes | Liberty server upload endpoint | - | `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp` |
+| `applicationXml` | Yes* | Inline full Liberty `<application ...>` definition | - | `<![CDATA[<application ...>...</application>]]>` |
+| `applicationXmlLocation` | Yes* | Path to a file containing the full Liberty `<application ...>` definition | - | `${project.basedir}/src/main/resources/application.xml` |
+| `userName` | Conditional** | Authentication username | - | `admin` |
+| `password` | Conditional** | Authentication password | - | `password` |
+| `bearerToken` | Conditional** | JWT Bearer token | - | `eyJhbGc...` |
+| `connectTimeout` | No | Connection timeout in milliseconds | `30000` (30s) | `60000` |
+| `readTimeout` | No | Read timeout in milliseconds | `300000` (5min) | `600000` |
 
 *Specify either `applicationXml` or `applicationXmlLocation`. If both are supplied, `applicationXml` takes precedence.
 **Either `userName`/`password` OR `bearerToken` must be provided.
+
+### Timeout Configuration
+
+The plugin includes configurable timeout settings to prevent indefinite hangs:
+
+- **Connect Timeout** (`connectTimeout`): Maximum time to wait for establishing a TCP connection to the server (default: 30 seconds)
+- **Read Timeout** (`readTimeout`): Maximum time to wait for server response after sending the request (default: 5 minutes)
+
+These defaults work for most scenarios, but you can customize them based on your network conditions or file sizes:
+
+```xml
+<libertyWarUpload>
+    <serverUrl>https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp</serverUrl>
+    <applicationXmlLocation>${project.basedir}/src/main/resources/application.xml</applicationXmlLocation>
+    <userName>${cics.user}</userName>
+    <password>${cics.password}</password>
+    <!-- Optional: Time to establish connection in milliseconds-->
+    <connectTimeout>60000</connectTimeout>  
+    <!-- Optional: Time to wait for response in milliseconds -->
+    <readTimeout>900000</readTimeout>
+</libertyWarUpload>
+```
+
+**When to adjust timeouts:**
+- Increase `connectTimeout` if you have slow network connections
+- Increase `readTimeout` if uploading very large WAR files or if the server takes longer to process
+- The plugin automatically retries failed uploads up to 3 times with exponential backoff
 
 Example `application.xml` used by this sample:
 

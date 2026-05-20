@@ -306,6 +306,9 @@ Add the plugin to your WAR project's `pom.xml`:
           <password>${cics.password}</password>
           <!-- OR use JWT Bearer Token -->
           <!-- <bearerToken>${cics.token}</bearerToken> -->
+          <!-- Optional: Timeout configuration -->
+          <!-- <connectTimeout>60000</connectTimeout> -->
+          <!-- <readTimeout>600000</readTimeout> -->
         </libertyWarUpload>
       </configuration>
     </plugin>
@@ -334,14 +337,16 @@ The upload goal will:
 
 ### Configuration Options
 
-| Property | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `serverUrl` | Yes | Liberty server upload endpoint | `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp` |
-| `applicationXml` | Yes* | Inline full Liberty `<application ...>` definition | `<![CDATA[<application ...>...</application>]]>` |
-| `applicationXmlLocation` | Yes* | Path to a file containing the full Liberty `<application ...>` definition | `${project.basedir}/src/main/resources/application.xml` |
-| `userName` | Conditional** | Authentication username | `admin` |
-| `password` | Conditional** | Authentication password | `password` |
-| `bearerToken` | Conditional** | JWT Bearer token | `eyJhbGc...` |
+| Property | Required | Description | Default | Example |
+|----------|----------|-------------|---------|---------|
+| `serverUrl` | Yes | Liberty server upload endpoint | - | `https://cics-server:port/com.ibm.cics.wlp.appdeploy/uploadApp` |
+| `applicationXml` | Yes* | Inline full Liberty `<application ...>` definition | - | `<![CDATA[<application ...>...</application>]]>` |
+| `applicationXmlLocation` | Yes* | Path to a file containing the full Liberty `<application ...>` definition | - | `${project.basedir}/src/main/resources/application.xml` |
+| `userName` | Conditional** | Authentication username | - | `admin` |
+| `password` | Conditional** | Authentication password | - | `password` |
+| `bearerToken` | Conditional** | JWT Bearer token | - | `eyJhbGc...` |
+| `connectTimeout` | No | Connection timeout in milliseconds | `30000` (30s) | `60000` |
+| `readTimeout` | No | Read timeout in milliseconds | `300000` (5min) | `600000` |
 
 *Specify either `applicationXml` or `applicationXmlLocation`. If both are supplied, `applicationXml` takes precedence.
 **Either `userName`/`password` OR `bearerToken` must be provided.
