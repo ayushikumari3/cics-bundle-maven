@@ -37,5 +37,3 @@ public class SimpleServlet extends HttpServlet {
     }
 
 }
-
-// Made with Bob

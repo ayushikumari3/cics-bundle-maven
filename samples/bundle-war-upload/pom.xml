@@ -51,11 +51,11 @@
                 </configuration>
             </plugin>
 
-            <!-- CICS Bundle Maven Plugin for WAR Upload -->
+			<!-- CICS Bundle Maven Plugin for WAR Upload -->
             <plugin>
                 <groupId>com.ibm.cics</groupId>
                 <artifactId>cics-bundle-maven-plugin</artifactId>
-                <version>2.0.1-SNAPSHOT</version>
+                <version>2.0.2-SNAPSHOT</version>
                 <executions>
                     <execution>
                         <goals>
