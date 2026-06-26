@@ -267,11 +267,11 @@ The `cics-bundle-maven-plugin` provides a goal to upload WAR files directly to a
 - Valid credentials (username/password or JWT Bearer token) with appropriate permissions
 - A Liberty `<application ...>` definition, supplied either inline in the plugin configuration or from a local XML file
 
-**Note:** The upload uses HTTP chunked transfer encoding, which allows uploading WAR files of any size. Files are streamed in 8KB chunks to avoid loading the entire file into memory.
+**Note:** The upload uses `multipart/form-data` encoding, sending the WAR binary and `applicationXml` as separate named parts. Files are streamed in 8KB chunks to avoid loading the entire file into memory.
 
 The upload contract is:
-- the WAR archive is sent as the raw HTTP request body
-- the full Liberty `<application ...>` XML is supplied either inline or from a local file and sent as the `applicationXml` request parameter
+- the WAR archive and `applicationXml` are sent as named parts in a `multipart/form-data` request
+- the full Liberty `<application ...>` XML is supplied either inline or from a local file
 
 ### Configure WAR Upload
 
@@ -327,9 +327,9 @@ mvn clean package cics-bundle:upload-war
 The upload goal will:
 - Build the WAR file (if not already built)
 - Resolve the Liberty application definition from `applicationXml` or `applicationXmlLocation`
-- Upload the WAR to the configured Liberty server endpoint using HTTP chunked transfer encoding
-- Send the file as the raw request body and send the XML as the `applicationXml` request parameter
-- Stream the file in 8KB chunks without loading into memory
+- Upload the WAR to the configured Liberty server endpoint as a `multipart/form-data` request
+- Send the WAR binary and application XML as separate named multipart parts
+-  Stream the WAR binary in 8KB chunks without loading into memory
 - Display upload progress every 100MB for large files
 - Handle HTTP redirects automatically
 - Retry on failure (up to 3 attempts with exponential backoff)

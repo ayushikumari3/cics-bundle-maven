@@ -30,13 +30,12 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 /**
- * Maven Mojo that uploads a WAR file to Liberty server using HTTP chunked transfer encoding.
- * Uses streaming to handle large files without loading entire file into memory.
+ * Maven Mojo that uploads a WAR file to Liberty server using multipart/form-data.
+ * Sends the WAR binary and applicationXml as separate named parts, streamed without loading into memory.
  */
 @Mojo(name = "upload-war", defaultPhase = LifecyclePhase.DEPLOY)
 public class UploadWarToLibertyMojo extends AbstractMojo {
@@ -166,21 +165,23 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Uploads WAR file using HTTP chunked transfer encoding with raw binary stream.
+     * Uploads WAR file using multipart/form-data with streaming.
      * Handles HTTP redirects manually for POST requests.
      */
     private void uploadWarFile(File war) throws Exception {
-        String urlWithParams = buildUrlWithParams(libertyWarUpload.getServerUrl(), resolveApplicationXml());
         
-        HttpURLConnection connection = createConnection(urlWithParams);
-        streamWarFile(connection, war);
+        String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
+        String appXml = resolveApplicationXml();
+        
+        HttpURLConnection connection = createConnection(libertyWarUpload.getServerUrl(), boundary);
+        writeMultipartBody(connection, boundary, appXml, war);
         
         int responseCode = connection.getResponseCode();
         getLog().info("Response: " + responseCode + " - " + connection.getResponseMessage());
         
         // Handle HTTP redirects manually for POST with body
         if (isRedirect(responseCode)) {
-            connection = handleRedirect(connection, war);
+            connection = handleRedirect(connection, boundary, appXml, war);
             responseCode = connection.getResponseCode();
         }
         
@@ -189,38 +190,60 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Streams WAR file content directly using chunked transfer encoding.
-     * Uses 8KB buffer to read and write file data efficiently without loading into memory.
+     * Writes the multipart/form-data body to the connection output stream.
+     * Sends two parts: "applicationXml" (text/xml) and "warFile" (application/octet-stream).
+     * Streams the WAR binary in 8KB chunks to avoid loading it into memory.
      */
-    private void streamWarFile(HttpURLConnection connection, File war) throws IOException {
-        try (OutputStream outputStream = connection.getOutputStream();
-             FileInputStream fileInput = new FileInputStream(war)) {
-            
-            byte[] buffer = new byte[BUFFER_SIZE];
-            int bytesRead;
-            long totalBytes = 0;
-            long lastLoggedMB = 0;
-            
-            while ((bytesRead = fileInput.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, bytesRead);
-                totalBytes += bytesRead;
-                
-                // Log progress every 100MB for large files
-                long currentMB = totalBytes / (1024 * 1024);
-                if (currentMB - lastLoggedMB >= 100) {
-                    getLog().info("Uploaded: " + currentMB + "MB");
-                    lastLoggedMB = currentMB;
+    private void writeMultipartBody(HttpURLConnection connection, String boundary, String appXml, File war)
+        throws IOException {
+
+        try (OutputStream out = connection.getOutputStream()) {
+
+            // --- Part 1: applicationXml ---
+            out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            out.write("Content-Disposition: form-data; name=\"applicationXml\"\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write("Content-Type: text/xml; charset=UTF-8\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write(appXml.getBytes(StandardCharsets.UTF_8));
+            out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+
+            // --- Part 2: warFile ---
+            out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            out.write(("Content-Disposition: form-data; name=\"warFile\"; filename=\"" + war.getName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+            out.write("Content-Type: application/octet-stream\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+
+            try (FileInputStream fileInput = new FileInputStream(war)) {
+                byte[] buffer = new byte[BUFFER_SIZE];
+                int bytesRead;
+                long totalBytes = 0;
+                long lastLoggedMB = 0;
+
+                while ((bytesRead = fileInput.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                    totalBytes += bytesRead;
+
+                    // Log progress every 100MB for large files
+                    long currentMB = totalBytes / (1024 * 1024);
+                    if (currentMB - lastLoggedMB >= 100) {
+                        getLog().info("Uploaded: " + currentMB + "MB");
+                        lastLoggedMB = currentMB;
+                    }
                 }
+
+                getLog().info(String.format("Total uploaded: %.2f MB", totalBytes / (1024.0 * 1024.0)));
             }
-            
-            getLog().info(String.format("Total uploaded: %.2f MB", totalBytes / (1024.0 * 1024.0)));
+
+            // --- Final boundary ---
+            out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         }
     }
 
     /**
      * Handles HTTP redirect by creating new connection and re-uploading.
      */
-    private HttpURLConnection handleRedirect(HttpURLConnection originalConnection, File war) throws Exception {
+    private HttpURLConnection handleRedirect(HttpURLConnection originalConnection, String boundary, String appXml, File war) throws Exception {
         String redirectUrl = originalConnection.getHeaderField("Location");
         if (redirectUrl == null) {
             throw new MojoExecutionException("Redirect response missing Location header");
@@ -229,9 +252,8 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         getLog().info("Following redirect to: " + redirectUrl);
         originalConnection.disconnect();
         
-        String redirectUrlWithParams = buildUrlWithParams(redirectUrl, resolveApplicationXml());
-        HttpURLConnection newConnection = createConnection(redirectUrlWithParams);
-        streamWarFile(newConnection, war);
+        HttpURLConnection newConnection = createConnection(redirectUrl, boundary);
+        writeMultipartBody(newConnection, boundary, appXml, war);
         
         getLog().info("Redirect response: " + newConnection.getResponseCode() + " - " + newConnection.getResponseMessage());
         return newConnection;
@@ -247,24 +269,9 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Builds URL with query parameters for Liberty upload.
-     * If URL already contains applicationXml (from redirect), returns as-is.
+     * Creates HTTP connection configured for multipart/form-data upload with authentication.
      */
-    private String buildUrlWithParams(String baseUrl, String applicationXml) throws Exception {
-        if (baseUrl.contains("applicationXml=")) {
-            return baseUrl;
-        }
-        
-        String separator = baseUrl.contains("?") ? "&" : "?";
-        String params = "applicationXml=" + urlEncode(applicationXml);
-        
-        return baseUrl + separator + params;
-    }
-
-    /**
-     * Creates HTTP connection with chunked transfer encoding and authentication.
-     */
-    private HttpURLConnection createConnection(String url) throws Exception {
+    private HttpURLConnection createConnection(String url, String boundary) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
@@ -279,9 +286,7 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         
         getLog().info("Timeout configuration - Connect: " + connectTimeout + "ms, Read: " + readTimeout + "ms");
         
-        connection.setRequestProperty("Content-Type", "application/octet-stream");
-        connection.setRequestProperty("Transfer-Encoding", "chunked");
-        connection.setChunkedStreamingMode(BUFFER_SIZE);  // Enable chunked streaming
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
         
         addAuthentication(connection);
         
@@ -347,13 +352,6 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         } catch (Exception e) {
             return "Unknown error";
         }
-    }
-
-    /**
-     * URL-encodes a string value.
-     */
-    private String urlEncode(String value) throws Exception {
-        return URLEncoder.encode(value, "UTF-8");
     }
 
     /**

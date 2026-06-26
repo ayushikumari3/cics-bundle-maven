@@ -3,12 +3,12 @@
 This sample demonstrates how to upload a WAR file directly to a Liberty server endpoint using the CICS Bundle Maven Plugin's WAR upload feature. This approach deploys WARs directly to Liberty using the WAR upload REST API.
 
 The sample uses the current upload contract:
-- the WAR archive is sent as the raw HTTP request body
+- the WAR archive and `applicationXml` are sent as named parts in a `multipart/form-data` request
 - the plugin resolves the full Liberty `<application ...>` definition from either inline `applicationXml` or `applicationXmlLocation`
 
 ## Key Features
 - Direct WAR upload to Liberty server (no CICS bundle required)
-- HTTP chunked upload with streaming (handles large files efficiently)
+- Multipart `multipart/form-data` upload with streaming (handles large files efficiently)
 - Full Liberty `<application>` definition supplied inline or from a file
 - Automatic retry with exponential backoff
 - HTTP redirect handling
@@ -155,9 +155,9 @@ mvn clean package cics-bundle:upload-war
 The upload goal will:
 1. Build the WAR file (if not already built)
 2. Resolve the Liberty `<application>` definition from inline `applicationXml` or `applicationXmlLocation`
-3. Upload the WAR to the configured Liberty server endpoint using HTTP chunked transfer encoding
-4. Stream the WAR without loading the full archive into memory
-5. Send the application definition to the Liberty upload endpoint as `applicationXml`
+3. Upload the WAR to the configured Liberty server endpoint as a `multipart/form-data` request
+4. Stream the WAR binary without loading the full archive into memory
+5. Send the application definition as a named multipart text part (`applicationXml`)
 6. Handle HTTP redirects automatically
 7. Retry on failure (up to 3 attempts)
 8. Display upload progress and server response
@@ -170,7 +170,7 @@ The upload goal will:
 [INFO] Target server: http://server:12372/com.ibm.cics.wlp.appdeploy/uploadApp
 [INFO] Using Basic Authentication
 [INFO] Response: 302 - Found
-[INFO] Following redirect to: https://server:12373/com.ibm.cics.wlp.appdeploy/uploadApp?applicationXml=...
+[INFO] Following redirect to: https://server:12373/com.ibm.cics.wlp.appdeploy/uploadApp
 [INFO] Redirect response: 200 - OK
 [INFO] Server response: Application uploaded and configured successfully.
 [INFO] ✓ WAR file uploaded successfully!
