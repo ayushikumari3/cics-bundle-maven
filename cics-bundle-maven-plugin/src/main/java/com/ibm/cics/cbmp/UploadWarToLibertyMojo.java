@@ -98,9 +98,11 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     private LibertyWarUploadConfig libertyWarUpload;
 
     /**
-     * The WAR file to upload. Defaults to the project's artifact file.
+     * The WAR file to upload. Defaults to the project's built artifact file.
+     * Using ${project.artifact.file} ensures the actual packaged artifact is used,
+     * so the extension check catches non-WAR packaging types (e.g. jar, ear).
      */
-    @Parameter(defaultValue = "${project.build.directory}/${project.build.finalName}.war")
+    @Parameter(defaultValue = "${project.artifact.file}")
     private File warFile;
 
     @Override
@@ -121,11 +123,17 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Validates that the WAR file exists and is readable.
+     * Validates that the WAR file has a .war extension.
      */
     private File validateWarFile() throws MojoExecutionException {
-        if (!warFile.exists()) {
-            throw new MojoExecutionException("WAR file does not exist: '" + warFile.getAbsolutePath() + "'");
+        if (warFile == null) {
+            throw new MojoExecutionException(
+                "No artifact file found. Run 'mvn package' before 'mvn cics-bundle:upload-war'");
+        }
+        String name = warFile.getName();
+        if (!name.toLowerCase().endsWith(".war")) {
+            String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : "(no extension)";
+            throw new MojoExecutionException("Unsupported file type: " + ext + ". Only .war files are accepted");
         }
         return warFile;
     }
