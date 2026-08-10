@@ -31,7 +31,7 @@ Using inline `applicationXml`:
 <plugin>
     <groupId>com.ibm.cics</groupId>
     <artifactId>cics-bundle-maven-plugin</artifactId>
-    <version>2.0.1-SNAPSHOT</version>
+    <version>2.0.2-SNAPSHOT</version>
     <executions>
         <execution>
             <goals>
@@ -59,7 +59,7 @@ Using `applicationXmlLocation`:
 <plugin>
     <groupId>com.ibm.cics</groupId>
     <artifactId>cics-bundle-maven-plugin</artifactId>
-    <version>2.0.1-SNAPSHOT</version>
+    <version>2.0.2-SNAPSHOT</version>
     <executions>
         <execution>
             <goals>
@@ -234,6 +234,17 @@ Example `application.xml` used by this sample:
 ```
 
 ## Troubleshooting
+
+### Wrong file type or missing build
+If `mvn package` was not run first, the goal fails immediately:
+```
+No artifact file found. Run 'mvn package' before 'mvn cics-bundle:upload-war'
+```
+If the project packaging is not `war` (e.g. `jar`), the goal fails with:
+```
+Unsupported file type: .jar. Only .war files are accepted
+```
+Ensure `<packaging>war</packaging>` is set in `pom.xml`.
 
 ### SSL Certificate Errors
 If you encounter SSL certificate errors, ensure your Java truststore includes the Liberty server's certificate. For development/testing only, you can configure Maven to skip SSL verification (not recommended for production).
