@@ -153,14 +153,12 @@ mvn clean package cics-bundle:upload-war
 ```
 
 The upload goal will:
-1. Build the WAR file (if not already built)
-2. Resolve the Liberty `<application>` definition from inline `applicationXml` or `applicationXmlLocation`
-3. Upload the WAR to the configured Liberty server endpoint as a `multipart/form-data` request
-4. Stream the WAR binary without loading the full archive into memory
-5. Send the application definition as a named multipart text part (`applicationXml`)
-6. Handle HTTP redirects automatically
-7. Retry on failure (up to 3 attempts)
-8. Display upload progress and server response
+1. Resolve the Liberty `<application>` definition from inline `applicationXml` or `applicationXmlLocation`
+2. Upload the WAR and application definition to the configured Liberty server endpoint as a `multipart/form-data` request
+3. Stream the WAR binary without loading the full archive into memory
+4. Handle HTTP redirects automatically
+5. Retry on failure (up to 3 attempts)
+6. Display upload progress and server response
 
 ### Example Output
 ```
@@ -268,3 +266,4 @@ http://your-server:port/your-context-root
 For this sample:
 ```
 http://your-server:port/demo-war-upload
+```
