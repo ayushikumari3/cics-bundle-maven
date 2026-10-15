@@ -331,7 +331,6 @@ The upload goal will:
 - Send the WAR binary and application XML as separate named multipart parts
 -  Stream the WAR binary in 8KB chunks without loading into memory
 - Display upload progress every 100MB for large files
-- Handle HTTP redirects automatically
 - Retry on failure (up to 3 attempts with exponential backoff)
 - Display server response
 

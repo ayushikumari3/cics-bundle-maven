@@ -11,7 +11,6 @@ The sample uses the current upload contract:
 - Multipart `multipart/form-data` upload with streaming (handles large files efficiently)
 - Full Liberty `<application>` definition supplied inline or from a file
 - Automatic retry with exponential backoff
-- HTTP redirect handling
 - Basic authentication and JWT Bearer token support
 - Progress logging
 
@@ -156,20 +155,17 @@ The upload goal will:
 1. Resolve the Liberty `<application>` definition from inline `applicationXml` or `applicationXmlLocation`
 2. Upload the WAR and application definition to the configured Liberty server endpoint as a `multipart/form-data` request
 3. Stream the WAR binary without loading the full archive into memory
-4. Handle HTTP redirects automatically
-5. Retry on failure (up to 3 attempts)
-6. Display upload progress and server response
+4. Retry on failure (up to 3 attempts)
+5. Display upload progress and server response
 
 ### Example Output
 ```
 [INFO] === Upload WAR to Liberty ===
 [INFO] Uploading WAR file: demo-war-upload-1.0.0.war
 [INFO] File size: 0.04 MB
-[INFO] Target server: http://server:12372/com.ibm.cics.wlp.appdeploy/uploadApp
+[INFO] Target server: https://server:12373/com.ibm.cics.wlp.appdeploy/uploadApp
 [INFO] Using Basic Authentication
-[INFO] Response: 302 - Found
-[INFO] Following redirect to: https://server:12373/com.ibm.cics.wlp.appdeploy/uploadApp
-[INFO] Redirect response: 200 - OK
+[INFO] Response: 200 - OK
 [INFO] Server response: Application uploaded and configured successfully.
 [INFO] ✓ WAR file uploaded successfully!
 ```

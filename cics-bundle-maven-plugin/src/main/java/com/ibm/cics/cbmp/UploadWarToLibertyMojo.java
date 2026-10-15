@@ -47,9 +47,6 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     // Buffer size for streaming file upload (8KB chunks)
     private static final int BUFFER_SIZE = 8192;
     
-    // HTTP redirect status codes
-    private static final int[] REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308};
-    
     // HTTP success status codes
     private static final int[] SUCCESS_STATUS_CODES = {200, 201};
     
@@ -174,7 +171,6 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
 
     /**
      * Uploads WAR file using multipart/form-data with streaming.
-     * Handles HTTP redirects manually for POST requests.
      */
     private void uploadWarFile(File war) throws Exception {
         
@@ -186,12 +182,6 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         
         int responseCode = connection.getResponseCode();
         getLog().info("Response: " + responseCode + " - " + connection.getResponseMessage());
-        
-        // Handle HTTP redirects manually for POST with body
-        if (isRedirect(responseCode)) {
-            connection = handleRedirect(connection, boundary, appXml, war);
-            responseCode = connection.getResponseCode();
-        }
         
         validateResponse(connection, responseCode);
         logResponseBody(connection);
@@ -249,25 +239,6 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     }
 
     /**
-     * Handles HTTP redirect by creating new connection and re-uploading.
-     */
-    private HttpURLConnection handleRedirect(HttpURLConnection originalConnection, String boundary, String appXml, File war) throws Exception {
-        String redirectUrl = originalConnection.getHeaderField("Location");
-        if (redirectUrl == null) {
-            throw new MojoExecutionException("Redirect response missing Location header");
-        }
-        
-        getLog().info("Following redirect to: " + redirectUrl);
-        originalConnection.disconnect();
-        
-        HttpURLConnection newConnection = createConnection(redirectUrl, boundary);
-        writeMultipartBody(newConnection, boundary, appXml, war);
-        
-        getLog().info("Redirect response: " + newConnection.getResponseCode() + " - " + newConnection.getResponseMessage());
-        return newConnection;
-    }
-
-    /**
      * Validates the HTTP response code.
      */
     private void validateResponse(HttpURLConnection connection, int responseCode) throws Exception {
@@ -283,7 +254,7 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
-        connection.setInstanceFollowRedirects(false);  // Handle redirects manually for POST
+        connection.setInstanceFollowRedirects(false);  // Never follow redirects: a redirected POST would resend credentials and the WAR
         
         // Set timeout configurations
         int connectTimeout = libertyWarUpload.getConnectTimeout();
@@ -360,16 +331,6 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
         } catch (Exception e) {
             return "Unknown error";
         }
-    }
-
-    /**
-     * Checks if response code is a redirect.
-     */
-    private boolean isRedirect(int code) {
-        for (int redirectCode : REDIRECT_STATUS_CODES) {
-            if (code == redirectCode) return true;
-        }
-        return false;
     }
 
     /**
