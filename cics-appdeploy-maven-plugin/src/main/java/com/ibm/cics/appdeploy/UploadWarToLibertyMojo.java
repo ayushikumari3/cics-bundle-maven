@@ -57,7 +57,7 @@ public class UploadWarToLibertyMojo extends AbstractMojo {
     private static final int BUFFER_SIZE = 8192;
     
     // HTTP success status codes
-    private static final int[] SUCCESS_STATUS_CODES = {200, 201};
+    private static final int[] SUCCESS_STATUS_CODES = {200, 201, 202};
     
     // Path of the AppDeploy upload endpoint. It is appended to the configured serverUrl.
     private static final String UPLOAD_PATH = "/appdeploy/uploadApp";
